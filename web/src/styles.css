@@ -233,6 +233,16 @@ body {
   width: 100%;
 }
 
+.search-banner {
+  background: #eff6ff;
+  border: 1px solid #bfdbfe;
+  border-radius: var(--radius);
+  padding: 8px 16px;
+  margin-bottom: 16px;
+  font-size: 13px;
+  color: #1e40af;
+}
+
 .board {
   display: grid;
   grid-template-columns: repeat(6, 1fr);

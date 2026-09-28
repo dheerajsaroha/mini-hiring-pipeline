@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import { CandidateWithHistory, Stage, SearchResponse } from "shared";
 import SearchBar from "./components/SearchBar";
 import Board from "./components/Board";
@@ -6,6 +6,15 @@ import CandidateDrawer from "./components/CandidateDrawer";
 import AddCandidateModal from "./components/AddCandidateModal";
 
 const API_BASE = "/api";
+
+const EMPTY_BY_STAGE: Record<Stage, CandidateWithHistory[]> = {
+  Applied: [],
+  Screening: [],
+  Interview: [],
+  Offer: [],
+  Hired: [],
+  Rejected: [],
+};
 
 function formatDate(dateString: string): string {
   const date = new Date(dateString);
@@ -38,6 +47,8 @@ export default function App() {
   const [searchResults, setSearchResults] = useState<SearchResponse | null>(null);
   const [isSearchMode, setIsSearchMode] = useState(false);
 
+  const searchDebounceRef = useRef<number | null>(null);
+
   const fetchCandidates = useCallback(async () => {
     try {
       const res = await fetch(`${API_BASE}/candidates`);
@@ -64,20 +75,25 @@ export default function App() {
 
   const handleSearch = useCallback(async (query: string) => {
     setSearchQuery(query);
+    if (searchDebounceRef.current) {
+      clearTimeout(searchDebounceRef.current);
+    }
     if (!query.trim()) {
       setSearchResults(null);
       setIsSearchMode(false);
       return;
     }
-    try {
-      const res = await fetch(`${API_BASE}/search?q=${encodeURIComponent(query)}`);
-      if (!res.ok) throw new Error("Search failed");
-      const data = await res.json();
-      setSearchResults(data);
-      setIsSearchMode(true);
-    } catch (error) {
-      console.error("Search failed:", error);
-    }
+    searchDebounceRef.current = window.setTimeout(async () => {
+      try {
+        const res = await fetch(`${API_BASE}/search?q=${encodeURIComponent(query.trim())}`);
+        if (!res.ok) throw new Error("Search failed");
+        const data = await res.json();
+        setSearchResults(data);
+        setIsSearchMode(true);
+      } catch (error) {
+        console.error("Search failed:", error);
+      }
+    }, 300);
   }, []);
 
   const handleTransition = async (
@@ -130,6 +146,9 @@ export default function App() {
   };
 
   const getAllCandidates = () => {
+    if (isSearchMode && searchResults) {
+      return searchResults.results.map((r) => r.candidate);
+    }
     return Object.values(candidatesByStage).flat();
   };
 
@@ -139,6 +158,11 @@ export default function App() {
 
   useEffect(() => {
     fetchCandidates();
+    return () => {
+      if (searchDebounceRef.current) {
+        clearTimeout(searchDebounceRef.current);
+      }
+    };
   }, [fetchCandidates]);
 
   useEffect(() => {
@@ -148,7 +172,10 @@ export default function App() {
   }, [selectedCandidate, fetchCandidateDetail]);
 
   const displayCandidates = isSearchMode && searchResults
-    ? { Search: searchResults.results.map(r => r.candidate) }
+    ? searchResults.results.reduce((acc, r) => {
+        acc[r.candidate.currentStage].push(r.candidate);
+        return acc;
+      }, { ...EMPTY_BY_STAGE })
     : candidatesByStage;
 
   return (
@@ -176,15 +203,27 @@ export default function App() {
         {loading ? (
           <div className="loading"><div className="spinner"></div>Loading...</div>
         ) : (
-          <Board
-            columns={displayCandidates}
-            onCardClick={(id) => {
-              const candidate = getCandidateForDrawer(id);
-              if (candidate) setSelectedCandidate(candidate);
-            }}
-            onMove={handleTransition}
-            getStageClass={getStageClass}
-          />
+          <>
+            {isSearchMode && searchResults && (
+              <div className="search-banner">
+                <span className="search-banner-text">
+                  Showing {searchResults.results.length} result{searchResults.results.length !== 1 ? "s" : ""}
+                  {searchResults.interpretation && (
+                    <> · Interpreted as: <strong>{searchResults.interpretation}</strong></>
+                  )}
+                </span>
+              </div>
+            )}
+            <Board
+              columns={displayCandidates}
+              onCardClick={(id) => {
+                const candidate = getCandidateForDrawer(id);
+                if (candidate) setSelectedCandidate(candidate);
+              }}
+              onMove={handleTransition}
+              getStageClass={getStageClass}
+            />
+          </>
         )}
       </main>
 
